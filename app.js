@@ -903,18 +903,11 @@ function processSelectedSlip(file) {
 
   const reader = new FileReader();
   reader.onload = function (evt) {
-    currentSlipBase64 = evt.target.result;
-    
     const previewBox = document.getElementById('slipPreviewBox');
     const previewImg = document.getElementById('slipPreviewImg');
     const scanStatus = document.getElementById('slipScanResult');
 
-    if (previewImg) previewImg.src = currentSlipBase64;
-    if (previewBox) previewBox.style.display = 'block';
-
-    scanStatus.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลดรูปภาพสลิป...`;
-
-    showToast('โหลดรูปภาพสลิปเรียบร้อยแล้ว!', 'success');
+    scanStatus.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> กำลังประมวลผลและบีบอัดรูปภาพสลิป...`;
 
     const img = new Image();
     img.onload = function () {
@@ -922,15 +915,27 @@ function processSelectedSlip(file) {
         const canvas = document.createElement('canvas');
         let w = img.width;
         let h = img.height;
-        if (w > 1200) {
-          h = Math.round((h * 1200) / w);
-          w = 1200;
+        const MAX_DIM = 1200;
+        if (w > MAX_DIM || h > MAX_DIM) {
+          if (w > h) {
+            h = Math.round((h * MAX_DIM) / w);
+            w = MAX_DIM;
+          } else {
+            w = Math.round((w * MAX_DIM) / h);
+            h = MAX_DIM;
+          }
         }
         canvas.width = w;
         canvas.height = h;
 
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, w, h);
+
+        // Compress and update currentSlipBase64 to optimized JPEG data URL
+        currentSlipBase64 = canvas.toDataURL('image/jpeg', 0.82);
+
+        if (previewImg) previewImg.src = currentSlipBase64;
+        if (previewBox) previewBox.style.display = 'block';
 
         if (typeof jsQR !== 'undefined') {
           const imageData = ctx.getImageData(0, 0, w, h);
@@ -944,20 +949,31 @@ function processSelectedSlip(file) {
               <i class="fa-solid fa-circle-check" style="color: var(--color-success);"></i> 
               <span>ตรวจพบ QR Code บนสลิปเรียบร้อย (Data Ref: ${code.data.substring(0, 20)}...)</span>
             `;
+            showToast('ปรับขนาดและสแกน QR Code บนสลิปเรียบร้อย!', 'success');
             return;
           }
         }
       } catch (err) {
-        console.warn('QR scanner processing notice:', err);
+        console.warn('QR scanner / image compression notice:', err);
+        currentSlipBase64 = evt.target.result;
+        if (previewImg) previewImg.src = currentSlipBase64;
+        if (previewBox) previewBox.style.display = 'block';
       }
 
       currentSlipQRData = null;
       scanStatus.innerHTML = `
         <i class="fa-solid fa-circle-check" style="color: var(--color-success);"></i> 
-        <span>รูปภาพสลิปพร้อมส่งแล้ว (${(file.size / 1024).toFixed(1)} KB)</span>
+        <span>รูปภาพสลิปพร้อมส่งแล้ว (บีบอัดเรียบร้อย)</span>
       `;
+      showToast('ปรับขนาดและพร้อมส่งสลิปเรียบร้อยแล้ว!', 'success');
     };
-    img.src = currentSlipBase64;
+    img.onerror = function() {
+      currentSlipBase64 = evt.target.result;
+      if (previewImg) previewImg.src = currentSlipBase64;
+      if (previewBox) previewBox.style.display = 'block';
+      scanStatus.innerHTML = `<span>รูปภาพสลิปพร้อมส่งแล้ว</span>`;
+    };
+    img.src = evt.target.result;
   };
 
   reader.onerror = function() {
@@ -1451,29 +1467,74 @@ async function postToGasReliable(data) {
     throw new Error('ยังไม่ได้ตั้งค่า Google Script URL');
   }
 
-  // Attach parameters to URL query string so mobile Safari/Chrome preserve them on 302 redirects
+  // Attach ONLY lightweight metadata parameters to URL query string (EXCLUDE slipBase64 and long strings)
   const params = new URLSearchParams();
   for (const key in data) {
-    if (data[key] !== null && data[key] !== undefined && typeof data[key] !== 'object') {
+    if (
+      key !== 'slipBase64' &&
+      data[key] !== null &&
+      data[key] !== undefined &&
+      typeof data[key] !== 'object' &&
+      String(data[key]).length < 300
+    ) {
       params.append(key, data[key]);
     }
   }
 
   const fetchUrl = gasUrl + (gasUrl.includes('?') ? '&' : '?') + params.toString();
+  const jsonPayload = JSON.stringify(data);
 
-  console.log('[postToGasReliable] Sending request to GAS:', data.action, fetchUrl);
+  console.log('[postToGasReliable] Sending request to GAS:', data.action, 'Query len:', params.toString().length);
 
   try {
     await fetch(fetchUrl, {
       method: 'POST',
       mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(data)
+      body: jsonPayload
     });
-    console.log('[postToGasReliable] Request sent successfully');
+    console.log('[postToGasReliable] Fetch POST sent successfully');
     return { status: 'success' };
   } catch (err) {
-    console.error('[postToGasReliable] Request failed:', err);
-    throw err;
+    console.warn('[postToGasReliable] fetch POST failed, attempting hidden form submission fallback...', err);
+    return sendViaHiddenForm(gasUrl, data);
   }
+}
+
+function sendViaHiddenForm(url, data) {
+  return new Promise((resolve) => {
+    try {
+      let iframe = document.getElementById('gas_hidden_iframe');
+      if (!iframe) {
+        iframe = document.createElement('iframe');
+        iframe.id = 'gas_hidden_iframe';
+        iframe.name = 'gas_hidden_iframe';
+        iframe.style.display = 'none';
+        document.body.appendChild(iframe);
+      }
+
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = url;
+      form.target = 'gas_hidden_iframe';
+      form.style.display = 'none';
+
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = 'payload';
+      input.value = JSON.stringify(data);
+      form.appendChild(input);
+
+      document.body.appendChild(form);
+      form.submit();
+
+      setTimeout(() => {
+        form.remove();
+        resolve({ status: 'success', fallback: true });
+      }, 1500);
+    } catch (e) {
+      console.error('Hidden form submission failed:', e);
+      resolve({ status: 'error', message: e.message });
+    }
+  });
 }
