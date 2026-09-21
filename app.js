@@ -268,23 +268,105 @@ function checkGasConfigAlert() {
 
 // Check if user is already logged in (Remember Login Feature)
 function checkSavedSession() {
-  const savedUser = localStorage.getItem('kmitl_pay_user');
+  const savedUser =
+    localStorage.getItem('kmitl_pay_user');
+
+  console.log(
+    '[Session] Checking saved session:',
+    savedUser
+  );
+
   if (savedUser) {
     try {
-      currentUser = JSON.parse(savedUser);
-      showMainApplication(currentUser);
-      showToast(`ต้อนรับกลับ, ${currentUser.name}`, 'info');
-      return;
+      const user =
+        JSON.parse(savedUser);
+
+      // ตรวจว่าข้อมูลสำคัญมีจริง
+      if (
+        user &&
+        user.studentId
+      ) {
+        currentUser = user;
+
+        console.log(
+          '[Session] Restored user:',
+          currentUser
+        );
+
+        showMainApplication(
+          currentUser
+        );
+
+        showToast(
+          `ต้อนรับกลับ, ${
+            currentUser.name ||
+            'นักศึกษา'
+          }`,
+          'info'
+        );
+
+        // สำคัญมาก
+        return true;
+      }
+
     } catch (e) {
-      localStorage.removeItem('kmitl_pay_user');
+      console.error(
+        '[Session] Restore failed:',
+        e
+      );
+
+      localStorage.removeItem(
+        'kmitl_pay_user'
+      );
     }
   }
 
+  console.log(
+    '[Session] No saved session'
+  );
+
   // Show login screen
-  document.getElementById('loginSection').style.display = 'block';
-  document.getElementById('registerSection').style.display = 'none';
-  document.getElementById('mainAppSection').style.display = 'none';
-  document.getElementById('navControls').style.display = 'none';
+  const loginSection =
+    document.getElementById(
+      'loginSection'
+    );
+
+  const registerSection =
+    document.getElementById(
+      'registerSection'
+    );
+
+  const mainAppSection =
+    document.getElementById(
+      'mainAppSection'
+    );
+
+  const navControls =
+    document.getElementById(
+      'navControls'
+    );
+
+  if (loginSection) {
+    loginSection.style.display =
+      'block';
+  }
+
+  if (registerSection) {
+    registerSection.style.display =
+      'none';
+  }
+
+  if (mainAppSection) {
+    mainAppSection.style.display =
+      'none';
+  }
+
+  if (navControls) {
+    navControls.style.display =
+      'none';
+  }
+
+  return false;
 }
 
 // ==========================================
