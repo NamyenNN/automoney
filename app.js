@@ -89,11 +89,40 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  const liffLoggedIn = await checkLiffAutoLogin();
-  if (!liffLoggedIn) {
-    checkSavedSession();
+ // เช็ก Session เดิมก่อน
+const restored = checkSavedSession();
+
+if (restored) {
+  console.log('[INIT] Session restored successfully');
+
+  await Promise.allSettled([
+    fetchSubmissionsFromGas(),
+    fetchFeeItemsFromGas(),
+    fetchSystemConfigFromGas()
+  ]);
+
+  if (currentUser) {
+    renderStudentDashboard();
   }
-});
+
+  return;
+}
+
+// ไม่มี Session เดิม ค่อยเช็ก LIFF
+const liffLoggedIn = await checkLiffAutoLogin();
+
+if (liffLoggedIn) {
+  await Promise.allSettled([
+    fetchSubmissionsFromGas(),
+    fetchFeeItemsFromGas(),
+    fetchSystemConfigFromGas()
+  ]);
+
+  return;
+}
+
+// ไม่มีทั้ง Session และ LIFF
+showLoginScreen();
 
 function normalizeStatus(st) {
   if (!st) return 'Pending';
