@@ -74,25 +74,85 @@ let submissions = JSON.parse(localStorage.getItem('kmitl_pay_submissions')) || [
 document.addEventListener('DOMContentLoaded', async () => {
   setupDragAndDrop();
   checkGasConfigAlert();
-  
-  // Load live payment submissions from Google Sheet
-  fetchSubmissionsFromGas();
-  
-  // Load live data from Google Sheet
-  fetchSubmissionsFromGas();
-  fetchFeeItemsFromGas();
 
-  // If opening admin.html page, immediately render admin view
-  if (window.location.pathname.toLowerCase().includes('admin.html')) {
+  // ==============================
+  // ADMIN PAGE
+  // ==============================
+  if (
+    window.location.pathname
+      .toLowerCase()
+      .includes('admin.html')
+  ) {
     currentView = 'admin';
+
+    await Promise.allSettled([
+      fetchSubmissionsFromGas(),
+      fetchFeeItemsFromGas(),
+      fetchSystemConfigFromGas()
+    ]);
+
     renderAdminDashboard();
     return;
   }
 
-  const liffLoggedIn = await checkLiffAutoLogin();
-  if (!liffLoggedIn) {
-    checkSavedSession();
+  // ==============================
+  // RESTORE SAVED LOGIN FIRST
+  // ==============================
+  const restored = checkSavedSession();
+
+  if (restored) {
+    console.log(
+      '[INIT] Session restored successfully'
+    );
+
+    // โหลดข้อมูลล่าสุดจาก Google Sheet
+    await Promise.allSettled([
+      fetchSubmissionsFromGas(),
+      fetchFeeItemsFromGas(),
+      fetchSystemConfigFromGas()
+    ]);
+
+    // render ใหม่หลังข้อมูลล่าสุดโหลดเสร็จ
+    if (currentUser) {
+      renderStudentDashboard();
+    }
+
+    return;
   }
+
+  // ==============================
+  // NO SAVED SESSION
+  // ลอง LIFF ต่อ
+  // ==============================
+  console.log(
+    '[INIT] No saved session, checking LIFF...'
+  );
+
+  const liffLoggedIn =
+    await checkLiffAutoLogin();
+
+  if (liffLoggedIn) {
+    await Promise.allSettled([
+      fetchSubmissionsFromGas(),
+      fetchFeeItemsFromGas(),
+      fetchSystemConfigFromGas()
+    ]);
+
+    return;
+  }
+
+  // ==============================
+  // NO LOGIN
+  // ==============================
+  showLoginScreen();
+
+  await Promise.allSettled([
+    fetchSubmissionsFromGas(),
+    fetchFeeItemsFromGas(),
+    fetchSystemConfigFromGas()
+  ]);
+
+  checkLineAuthCode();
 });
 
 function normalizeStatus(st) {
